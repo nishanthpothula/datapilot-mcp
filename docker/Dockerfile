@@ -26,9 +26,10 @@ RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 
 # Copy compiled output from builder
 COPY --from=builder /app/dist ./dist
+COPY docker/start.sh ./start.sh
 
 # Create data directory with correct ownership
-RUN mkdir -p /app/data && chown -R datapilot:datapilot /app/data
+RUN mkdir -p /app/data && chown -R datapilot:datapilot /app/data && chmod +x /app/start.sh
 
 USER datapilot
 
@@ -40,4 +41,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD wget -qO- http://localhost:3000/health || exit 1
 
 # Default command: seed DB then start server
-CMD ["sh", "-c", "node dist/db/seed.js && node dist/index.js"]
+CMD ["/app/start.sh"]
