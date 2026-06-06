@@ -125,6 +125,31 @@ async function createAuth0Client(
   return res.json() as Promise<Auth0ClientResponse>;
 }
 
+async function createClientGrant(clientId: string, mgmtToken: string): Promise<void> {
+  const domain = process.env['AUTH0_DOMAIN'];
+  const audience = process.env['AUTH0_AUDIENCE'];
+
+  if (!audience) throw new DcrError('AUTH0_AUDIENCE not configured');
+
+  const res = await fetch(`https://${domain}/api/v2/client-grants`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${mgmtToken}`,
+    },
+    body: JSON.stringify({
+      client_id: clientId,
+      audience,
+      scope: [],
+    }),
+  });
+
+  if (!res.ok) {
+    const body = (await res.json()) as { message?: string };
+    throw new DcrError(body.message ?? 'Failed to create client grant');
+  }
+}
+
 // ─── Registration handler ─────────────────────────────────────────────────────
 
 /**
@@ -184,6 +209,7 @@ export async function registerClient(rawBody: unknown): Promise<DcrResponse> {
     token_endpoint_auth_method: request.token_endpoint_auth_method ?? ('client_secret_basic' as const),
   };
   const client = await createAuth0Client(normalizedRequest, mgmtToken);
+  await createClientGrant(client.client_id, mgmtToken);
 
   return {
     client_id: client.client_id,
