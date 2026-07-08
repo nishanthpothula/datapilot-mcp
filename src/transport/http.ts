@@ -72,6 +72,12 @@ export function createApp(): express.Application {
     app.use(morgan('combined'));
   }
 
+  // Normalize double slashes that mcp-remote produces when joining URLs
+  app.use((req, _res, next) => {
+    req.url = req.url.replace(/\/\/+/g, '/');
+    next();
+  });
+
   app.use(express.json({ limit: '10mb' }));
 
   // ─── OAuth discovery (RFC 8414) ──────────────────────────────────────────
