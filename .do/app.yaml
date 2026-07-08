@@ -1,0 +1,85 @@
+# DigitalOcean App Platform Spec
+# Deploy with: doctl apps create --spec .do/app.yaml
+
+name: datapilot-mcp
+region: nyc
+
+services:
+  - name: api
+    github:
+      repo: nishanthpothula/datapilot-mcp
+      branch: main
+      deploy_on_push: true
+    source_dir: /
+    dockerfile_path: docker/Dockerfile
+    http_port: 3000
+    instance_count: 1
+    instance_size_slug: apps-s-1vcpu-0.5gb
+
+    health_check:
+      http_path: /health
+      initial_delay_seconds: 15
+      period_seconds: 30
+      timeout_seconds: 5
+      failure_threshold: 3
+      success_threshold: 1
+
+    routes:
+      - path: /
+
+    envs:
+      - key: NODE_ENV
+        value: production
+        scope: RUN_TIME
+
+      - key: PORT
+        value: "3000"
+        scope: RUN_TIME
+
+      - key: HOST
+        value: "0.0.0.0"
+        scope: RUN_TIME
+
+      - key: AUTH0_DOMAIN
+        scope: RUN_TIME
+        type: SECRET
+
+      - key: AUTH0_AUDIENCE
+        scope: RUN_TIME
+        type: SECRET
+
+      - key: AUTH0_CLIENT_ID
+        scope: RUN_TIME
+        type: SECRET
+
+      - key: AUTH0_CLIENT_SECRET
+        scope: RUN_TIME
+        type: SECRET
+
+      - key: DCR_REGISTRATION_SECRET
+        scope: RUN_TIME
+        type: SECRET
+
+      - key: LANGSMITH_API_KEY
+        scope: RUN_TIME
+        type: SECRET
+
+      - key: LANGSMITH_PROJECT
+        value: datapilot-mcp
+        scope: RUN_TIME
+
+      - key: LANGSMITH_TRACING
+        value: "true"
+        scope: RUN_TIME
+
+      - key: DATABASE_PATH
+        value: /app/data/datapilot.db
+        scope: RUN_TIME
+
+      - key: CORS_ORIGINS
+        value: "*"
+        scope: RUN_TIME
+
+      - key: PUBLIC_URL
+        value: "https://datapilot-app-gwte8.ondigitalocean.app"
+        scope: RUN_TIME
