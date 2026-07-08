@@ -42,12 +42,15 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
   const token = extractBearerToken(req.headers['authorization']);
 
   if (!token) {
+    const publicUrl = process.env['PUBLIC_URL'] ?? 'http://localhost:3000';
+    res.setHeader(
+      'WWW-Authenticate',
+      `Bearer realm="datapilot", resource_metadata="${publicUrl}/.well-known/oauth-authorization-server"`,
+    );
     res.status(401).json({
       error: 'authentication_required',
-      error_description: 'Bearer token required. Obtain a token from Auth0 and include it as Authorization: Bearer <token>',
-      token_endpoint: process.env['AUTH0_DOMAIN']
-        ? `https://${process.env['AUTH0_DOMAIN']}/oauth/token`
-        : null,
+      error_description: 'Bearer token required',
+      resource_metadata: `${publicUrl}/.well-known/oauth-authorization-server`,
     });
     return;
   }

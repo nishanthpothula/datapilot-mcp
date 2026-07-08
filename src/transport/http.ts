@@ -74,6 +74,30 @@ export function createApp(): express.Application {
 
   app.use(express.json({ limit: '10mb' }));
 
+  // ─── OAuth discovery (RFC 8414) ──────────────────────────────────────────
+  // mcp-remote reads this to know where to send the user for login
+
+  app.get('/.well-known/oauth-authorization-server', (_req, res) => {
+    const domain = process.env['AUTH0_DOMAIN'];
+    const publicUrl = process.env['PUBLIC_URL'] ?? 'http://localhost:3000';
+
+    if (!domain) {
+      res.status(404).json({ error: 'Auth not configured' });
+      return;
+    }
+
+    res.json({
+      issuer: `https://${domain}/`,
+      authorization_endpoint: `https://${domain}/authorize`,
+      token_endpoint: `https://${domain}/oauth/token`,
+      jwks_uri: `https://${domain}/.well-known/jwks.json`,
+      response_types_supported: ['code'],
+      grant_types_supported: ['authorization_code', 'client_credentials', 'refresh_token'],
+      code_challenge_methods_supported: ['S256'],
+      registration_endpoint: `${publicUrl}/oauth/register`,
+    });
+  });
+
   // ─── Health check ────────────────────────────────────────────────────────
 
   app.get('/health', (_req, res) => {
