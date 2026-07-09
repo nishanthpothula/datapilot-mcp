@@ -100,6 +100,20 @@ async function createAuth0Client(
 ): Promise<Auth0ClientResponse> {
   const domain = process.env['AUTH0_DOMAIN'];
 
+  // Interactive (browser login) vs machine-to-machine. mcp-remote requests
+  // authorization_code for the browser OAuth flow; CLI/M2M clients request
+  // client_credentials. Auth0's app_type governs which flows are permitted:
+  //   non_interactive → client_credentials only (M2M, confidential)
+  //   spa             → authorization_code + PKCE, public (no secret)
+  //   regular_web     → authorization_code, confidential (uses client_secret)
+  const isInteractive = request.grant_types.includes('authorization_code');
+  const isPublic = request.token_endpoint_auth_method === 'none';
+  const appType = !isInteractive
+    ? 'non_interactive'
+    : isPublic
+      ? 'spa'
+      : 'regular_web';
+
   const res = await fetch(`https://${domain}/api/v2/clients`, {
     method: 'POST',
     headers: {
@@ -109,9 +123,12 @@ async function createAuth0Client(
     body: JSON.stringify({
       name: request.client_name,
       description: request.description ?? `Registered via DataPilot DCR`,
-      app_type: 'non_interactive', // Machine-to-Machine
+      app_type: appType,
       grant_types: request.grant_types,
       callbacks: request.redirect_uris,
+      allowed_logout_urls: request.redirect_uris,
+      token_endpoint_auth_method: request.token_endpoint_auth_method,
+      oidc_conformant: true,
       logo_uri: request.logo_uri,
       is_first_party: false,
     }),
@@ -209,7 +226,13 @@ export async function registerClient(rawBody: unknown): Promise<DcrResponse> {
     token_endpoint_auth_method: request.token_endpoint_auth_method ?? ('client_secret_basic' as const),
   };
   const client = await createAuth0Client(normalizedRequest, mgmtToken);
-  await createClientGrant(client.client_id, mgmtToken);
+
+  // client-grants pre-authorize an API for the client_credentials (M2M) flow.
+  // Interactive authorization_code clients obtain the audience via the /authorize
+  // request instead, so a client-grant is unnecessary (and rejected for SPAs).
+  if (normalizedRequest.grant_types.includes('client_credentials')) {
+    await createClientGrant(client.client_id, mgmtToken);
+  }
 
   return {
     client_id: client.client_id,
