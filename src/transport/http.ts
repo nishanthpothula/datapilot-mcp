@@ -26,7 +26,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import { randomUUID } from 'crypto';
 import { requireAuth } from '../auth/middleware.js';
-import { registerClient, validateRegistrationSecret } from '../auth/dcr.js';
+import { registerClient } from '../auth/dcr.js';
 import { createMcpServerWithContext } from '../server.js';
 import { registry } from '../skills/index.js';
 import { isDataPilotError } from '../utils/errors.js';
@@ -150,20 +150,6 @@ export function createApp(): express.Application {
   // ─── Dynamic Client Registration ─────────────────────────────────────────
 
   app.post('/oauth/register', (req: Request, res: Response) => {
-    try {
-      validateRegistrationSecret(req.headers['authorization']);
-    } catch (err) {
-      if (isDataPilotError(err)) {
-        res.status(err.statusCode).json({
-          error: 'unauthorized_client',
-          error_description: err.message,
-        });
-        return;
-      }
-      res.status(401).json({ error: 'unauthorized_client' });
-      return;
-    }
-
     registerClient(req.body)
       .then((result) => {
         res.status(201).json(result);
