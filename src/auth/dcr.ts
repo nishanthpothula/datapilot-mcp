@@ -129,7 +129,12 @@ async function createAuth0Client(
       token_endpoint_auth_method: request.token_endpoint_auth_method,
       oidc_conformant: true,
       logo_uri: request.logo_uri,
-      is_first_party: false,
+      // Interactive clients must be first-party so Auth0 will mint a JWT for our
+      // custom API audience during the browser login flow. Third-party (tpc_)
+      // clients are restricted to OIDC scopes and would be denied the audience.
+      // M2M clients get API access via a client-grant instead, so first-party
+      // is unnecessary there.
+      is_first_party: isInteractive,
     }),
   });
 
