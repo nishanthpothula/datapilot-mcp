@@ -126,7 +126,6 @@ async function createAuth0Client(
       app_type: appType,
       grant_types: request.grant_types,
       callbacks: request.redirect_uris,
-      allowed_logout_urls: request.redirect_uris,
       token_endpoint_auth_method: request.token_endpoint_auth_method,
       oidc_conformant: true,
       logo_uri: request.logo_uri,
