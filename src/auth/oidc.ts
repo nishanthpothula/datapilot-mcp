@@ -75,6 +75,7 @@ export async function verifyToken(rawToken: string): Promise<VerifiedToken> {
     throw new InvalidTokenError('OIDC not configured');
   }
 
+  // ── Path 1: JWT access token (M2M client_credentials — carries our API audience) ──
   try {
     const { payload } = await jwtVerify(rawToken, getJwks(), {
       issuer: `https://${AUTH0_DOMAIN}/`,
@@ -93,11 +94,63 @@ export async function verifyToken(rawToken: string): Promise<VerifiedToken> {
       exp: payload.exp ?? 0,
       raw: payload,
     };
-  } catch (err) {
-    throw new InvalidTokenError(
-      err instanceof Error ? `JWT verification failed: ${err.message}` : 'JWT verification failed',
-    );
+  } catch {
+    // Not a JWT for our API (the browser login flow issues an opaque access token
+    // because Auth0 won't grant the custom API audience through the interactive
+    // flow). Fall through to /userinfo validation.
   }
+
+  // ── Path 2: Opaque access token (browser login) — validate via /userinfo ─────────
+  return verifyViaUserinfo(rawToken);
+}
+
+// ─── Opaque-token validation via Auth0 /userinfo ──────────────────────────────
+
+interface UserinfoCacheEntry {
+  identity: VerifiedToken;
+  expiresAt: number;
+}
+
+const userinfoCache = new Map<string, UserinfoCacheEntry>();
+const USERINFO_TTL_MS = 5 * 60 * 1000;
+
+/**
+ * Validate an opaque Auth0 access token by calling /userinfo. A 200 response
+ * proves the token is a live, tenant-issued credential; the identity is cached
+ * briefly so we don't hit Auth0 on every MCP request.
+ */
+async function verifyViaUserinfo(rawToken: string): Promise<VerifiedToken> {
+  const { InvalidTokenError } = await import('../utils/errors.js');
+
+  const cached = userinfoCache.get(rawToken);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.identity;
+  }
+
+  const res = await fetch(`https://${AUTH0_DOMAIN}/userinfo`, {
+    headers: { Authorization: `Bearer ${rawToken}` },
+  });
+
+  if (!res.ok) {
+    throw new InvalidTokenError('Token rejected by Auth0 /userinfo');
+  }
+
+  const user = (await res.json()) as { sub?: string; [k: string]: unknown };
+  if (!user.sub) {
+    throw new InvalidTokenError('Auth0 /userinfo returned no subject');
+  }
+
+  const identity: VerifiedToken = {
+    sub: user.sub,
+    clientId: user.sub,
+    scopes: [],
+    audience: 'userinfo',
+    exp: Math.floor((Date.now() + USERINFO_TTL_MS) / 1000),
+    raw: user,
+  };
+
+  userinfoCache.set(rawToken, { identity, expiresAt: Date.now() + USERINFO_TTL_MS });
+  return identity;
 }
 
 /**

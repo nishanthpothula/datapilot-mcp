@@ -92,17 +92,14 @@ export function createApp(): express.Application {
       return;
     }
 
-    // Embed the API audience in the authorize URL. Without it, Auth0 issues an
-    // opaque token that our JWKS verifier can't validate; with it, Auth0 mints a
-    // JWT access token for our API. mcp-remote preserves this query param when it
-    // appends its own OAuth params.
-    const audience = process.env['AUTH0_AUDIENCE'];
-    const authorizeUrl = new URL(`https://${domain}/authorize`);
-    if (audience) authorizeUrl.searchParams.set('audience', audience);
-
+    // NOTE: we deliberately do NOT add an `audience` param here. Auth0 refuses to
+    // grant our custom API audience through the interactive/browser flow ("client
+    // is not authorized to access resource server"), which breaks login. Without
+    // it, Auth0 issues a normal opaque access token, which the auth middleware
+    // validates via /userinfo. M2M clients still get a JWT via client_credentials.
     res.json({
       issuer: `https://${domain}/`,
-      authorization_endpoint: authorizeUrl.toString(),
+      authorization_endpoint: `https://${domain}/authorize`,
       token_endpoint: `https://${domain}/oauth/token`,
       jwks_uri: `https://${domain}/.well-known/jwks.json`,
       response_types_supported: ['code'],
