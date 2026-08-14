@@ -13,6 +13,7 @@ import { successResponse, errorResponse } from '../../types/responses.js';
 import type { ChartConfig } from '../../types/responses.js';
 import type { ToolHandler } from '../../types/tools.js';
 import { isDataPilotError } from '../../utils/errors.js';
+import { renderChartApp } from '../../ui/chart-app.js';
 
 const InputSchema = z.object({
   sql: z.string().min(1).describe('SQL SELECT query whose results will be visualized'),
@@ -156,12 +157,33 @@ export const generateChartConfigHandler: ToolHandler = async (input, context) =>
         break;
     }
 
+    const description =
+      params.description ??
+      `${params.chart_type} chart of ${params.x_field}${params.y_field ? ` vs ${params.y_field}` : ''}`;
+
     const result: ChartConfig = {
       type: params.chart_type,
       vegaLiteSpec: spec,
       title,
-      description: params.description ?? `${params.chart_type} chart of ${params.x_field}${params.y_field ? ` vs ${params.y_field}` : ''}`,
+      description,
     };
+
+    // Attach an interactive MCP App (rendered inline by supporting clients).
+    // Non-supporting clients ignore it and use the JSON above. The widget is
+    // fully self-contained — the query rows are inlined into the HTML.
+    context.attachUI?.({
+      uri: 'ui://datapilot/chart',
+      mimeType: 'text/html;profile=mcp-app',
+      text: renderChartApp({
+        title,
+        description,
+        chartType: params.chart_type,
+        xField: params.x_field,
+        yField: params.y_field,
+        colorField: params.color_field,
+        rows,
+      }),
+    });
 
     return successResponse(result, {
       tool: 'generate_chart_config',

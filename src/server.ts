@@ -14,7 +14,12 @@ import {
 import { registry } from './skills/index.js';
 import { isDataPilotError } from './utils/errors.js';
 import { errorResponse } from './types/responses.js';
-import type { ToolContext } from './types/tools.js';
+import type { ToolContext, UIResource } from './types/tools.js';
+
+// MCP content block: JSON text, plus an optional embedded UI resource (MCP Apps).
+type TextBlock = { type: 'text'; text: string };
+type ResourceBlock = { type: 'resource'; resource: { uri: string; mimeType: string; text: string } };
+type ContentBlock = TextBlock | ResourceBlock;
 
 function buildServer(context: ToolContext): Server {
   const server = new Server(
@@ -69,7 +74,11 @@ function buildServer(context: ToolContext): Server {
       });
     };
 
-    const enrichedContext: ToolContext = { ...context, sendProgress, sendLog };
+    // A tool may attach one interactive UI resource (MCP Apps) via context.attachUI.
+    let uiResource: UIResource | undefined;
+    const attachUI = (resource: UIResource): void => { uiResource = resource; };
+
+    const enrichedContext: ToolContext = { ...context, sendProgress, sendLog, attachUI };
     const start = Date.now();
 
     try {
@@ -80,8 +89,24 @@ function buildServer(context: ToolContext): Server {
 
       context.recordToolCall?.(toolName, toolDef.skill, Date.now() - start, result.status);
 
+      // Text block carries the structured JSON; the optional resource block carries
+      // the inline UI. Clients that don't support the mcp-app profile ignore it.
+      const content: ContentBlock[] = [
+        { type: 'text', text: JSON.stringify(result, null, 2) },
+      ];
+      if (uiResource) {
+        content.push({
+          type: 'resource',
+          resource: {
+            uri: uiResource.uri,
+            mimeType: uiResource.mimeType,
+            text: uiResource.text,
+          },
+        });
+      }
+
       return {
-        content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+        content,
         isError: result.status === 'error',
       };
     } catch (err) {

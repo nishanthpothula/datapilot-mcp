@@ -40,6 +40,24 @@ export interface ToolCallRecord {
   status: string;
 }
 
+/**
+ * An interactive UI resource (MCP Apps / `io.modelcontextprotocol/ui`).
+ *
+ * A tool can attach one of these via `context.attachUI(...)`. The server emits it
+ * as an embedded `resource` content block; clients that advertise the
+ * `text/html;profile=mcp-app` profile (e.g. Claude Desktop) render the HTML inline
+ * in a sandboxed iframe. The HTML MUST be self-contained — inline all data, CSS and
+ * JS; no external network requests are permitted inside the sandbox.
+ */
+export interface UIResource {
+  /** Resource URI, e.g. `ui://datapilot/chart`. Identifies the widget; not fetched. */
+  uri: string;
+  /** MIME type. Use `text/html;profile=mcp-app` for MCP Apps rendering. */
+  mimeType: string;
+  /** The self-contained HTML document to render. */
+  text: string;
+}
+
 export interface ToolContext {
   /** Authenticated user subject (from JWT) */
   userId: string;
@@ -53,6 +71,12 @@ export interface ToolContext {
   sendLog?: (level: 'debug' | 'info' | 'warning' | 'error', message: string, logger?: string) => Promise<void>;
   /** Record a completed tool invocation into the session's conversation history */
   recordToolCall?: (tool: string, skill: SkillName, durationMs: number, status: string) => void;
+  /**
+   * Attach an interactive UI resource (MCP Apps) to this tool's result. Supporting
+   * clients render it inline; others simply ignore the extra resource block and
+   * fall back to the JSON text. Call at most once per invocation.
+   */
+  attachUI?: (resource: UIResource) => void;
 }
 
 export type ToolHandler = (
