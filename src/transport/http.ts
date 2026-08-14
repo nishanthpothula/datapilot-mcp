@@ -25,7 +25,7 @@ import morgan from 'morgan';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import { randomUUID } from 'crypto';
-import { requireAuth } from '../auth/middleware.js';
+import { requireAuth, optionalAuth } from '../auth/middleware.js';
 import { registerClient } from '../auth/dcr.js';
 import { createMcpServerWithContext } from '../server.js';
 import { registry } from '../skills/index.js';
@@ -43,6 +43,44 @@ interface SessionEntry {
 }
 
 const sessions = new Map<string, SessionEntry>();
+
+// ─── Lazy auth gate ──────────────────────────────────────────────────────────
+//
+// We want the browser login (and DCR) to happen only when the user actually
+// invokes a DataPilot tool — NOT when Claude Desktop first connects. mcp-remote
+// triggers OAuth the moment the server returns a 401, so if we gated the whole
+// MCP endpoint the login would pop at app-open time (on the initial `initialize`).
+//
+// Instead, the MCP handshake methods (initialize, tools/list, ping, notifications,
+// …) are allowed through un-authenticated — they expose only the tool catalogue,
+// no data. `tools/call` (and anything else not on the allow-list) still requires a
+// valid Bearer token, so the FIRST tool call returns 401 → mcp-remote runs the
+// OAuth/DCR flow → the browser opens then, in response to a real prompt.
+const PUBLIC_MCP_METHODS = new Set<string>([
+  'initialize',
+  'ping',
+  'tools/list',
+  'prompts/list',
+  'resources/list',
+  'resources/templates/list',
+  'completion/complete',
+]);
+
+function isPublicMcpRequest(body: unknown): boolean {
+  const method = (body as { method?: unknown } | null | undefined)?.method;
+  if (typeof method !== 'string') return false;
+  return PUBLIC_MCP_METHODS.has(method) || method.startsWith('notifications/');
+}
+
+// requireAuth for tool calls (and unknown methods); optionalAuth for the handshake
+// so a token, if already present, still populates identity without ever forcing 401.
+function mcpAuthGate(req: Request, res: Response, next: NextFunction): void {
+  if (isPublicMcpRequest(req.body)) {
+    optionalAuth(req, res, next);
+  } else {
+    requireAuth(req, res, next);
+  }
+}
 
 // ─── App factory ─────────────────────────────────────────────────────────────
 
@@ -175,7 +213,7 @@ export function createApp(): express.Application {
   // ─── MCP Streamable HTTP Transport ───────────────────────────────────────
 
   // POST /mcp — Handle JSON-RPC messages
-  app.post('/mcp', requireAuth, (async (req: Request, res: Response): Promise<void> => {
+  app.post('/mcp', mcpAuthGate, (async (req: Request, res: Response): Promise<void> => {
     const context = req.toolContext!;
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
 
@@ -264,8 +302,10 @@ export function createApp(): express.Application {
     }
   }) as express.RequestHandler);
 
-  // GET /mcp — SSE stream for server-to-client notifications
-  app.get('/mcp', requireAuth, (async (req: Request, res: Response): Promise<void> => {
+  // GET /mcp — SSE stream for server-to-client notifications.
+  // optionalAuth (not requireAuth) so opening the stream before login can't emit a
+  // 401 that would trigger OAuth early; access is gated by a valid session id below.
+  app.get('/mcp', optionalAuth, (async (req: Request, res: Response): Promise<void> => {
 	console.log('[SSE] Client connected to /mcp SSE stream');
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
 
@@ -287,8 +327,9 @@ export function createApp(): express.Application {
     }
   }) as express.RequestHandler);
 
-  // DELETE /mcp — Close a session
-  app.delete('/mcp', requireAuth, (async (req: Request, res: Response): Promise<void> => {
+  // DELETE /mcp — Close a session. optionalAuth so a shutdown teardown before login
+  // never 401s into an OAuth prompt; gated by session id below.
+  app.delete('/mcp', optionalAuth, (async (req: Request, res: Response): Promise<void> => {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
 
     if (!sessionId || !sessions.has(sessionId)) {
