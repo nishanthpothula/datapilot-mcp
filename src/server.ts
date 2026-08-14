@@ -10,22 +10,43 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import {
   ListToolsRequestSchema,
   CallToolRequestSchema,
+  ListResourcesRequestSchema,
+  ReadResourceRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { registry } from './skills/index.js';
 import { isDataPilotError } from './utils/errors.js';
 import { errorResponse } from './types/responses.js';
-import type { ToolContext, UIResource } from './types/tools.js';
-
-// MCP content block: JSON text, plus an optional embedded UI resource (MCP Apps).
-type TextBlock = { type: 'text'; text: string };
-type ResourceBlock = { type: 'resource'; resource: { uri: string; mimeType: string; text: string } };
-type ContentBlock = TextBlock | ResourceBlock;
+import type { ToolContext } from './types/tools.js';
+import { UI_RESOURCES, getUiResource } from './ui/registry.js';
 
 function buildServer(context: ToolContext): Server {
   const server = new Server(
     { name: 'datapilot-mcp', version: '1.0.0' },
-    { capabilities: { tools: {}, logging: {} } },
+    // `resources` capability is required so the host can read our ui:// templates
+    // (MCP Apps / io.modelcontextprotocol/ui).
+    { capabilities: { tools: {}, logging: {}, resources: {} } },
   );
+
+  // ── List resources (MCP Apps UI templates) ──────────────────────────────────
+  server.setRequestHandler(ListResourcesRequestSchema, async () => ({
+    resources: UI_RESOURCES.map((r) => ({
+      uri: r.uri,
+      name: r.name,
+      description: r.description,
+      mimeType: r.mimeType,
+    })),
+  }));
+
+  // ── Read resource — return the static HTML template for a ui:// URI ──────────
+  server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+    const res = getUiResource(request.params.uri);
+    if (!res) {
+      throw new Error(`Unknown resource: ${request.params.uri}`);
+    }
+    return {
+      contents: [{ uri: res.uri, mimeType: res.mimeType, text: res.html }],
+    };
+  });
 
   // ── List tools ─────────────────────────────────────────────────────────────
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
@@ -33,6 +54,8 @@ function buildServer(context: ToolContext): Server {
       name: t.spec.name,
       description: t.spec.description ?? t.spec.name,
       inputSchema: t.spec.inputSchema,
+      // Pass through _meta so the UI linkage (_meta.ui.resourceUri) reaches the host.
+      ...(t.spec._meta ? { _meta: t.spec._meta } : {}),
     })),
   }));
 
@@ -74,11 +97,12 @@ function buildServer(context: ToolContext): Server {
       });
     };
 
-    // A tool may attach one interactive UI resource (MCP Apps) via context.attachUI.
-    let uiResource: UIResource | undefined;
-    const attachUI = (resource: UIResource): void => { uiResource = resource; };
+    // A tool linked to a ui:// resource (MCP Apps) may attach structuredContent, which
+    // the host forwards to the rendered iframe (not added to the model context).
+    let structuredContent: Record<string, unknown> | undefined;
+    const attachStructuredContent = (data: Record<string, unknown>): void => { structuredContent = data; };
 
-    const enrichedContext: ToolContext = { ...context, sendProgress, sendLog, attachUI };
+    const enrichedContext: ToolContext = { ...context, sendProgress, sendLog, attachStructuredContent };
     const start = Date.now();
 
     try {
@@ -89,24 +113,9 @@ function buildServer(context: ToolContext): Server {
 
       context.recordToolCall?.(toolName, toolDef.skill, Date.now() - start, result.status);
 
-      // Text block carries the structured JSON; the optional resource block carries
-      // the inline UI. Clients that don't support the mcp-app profile ignore it.
-      const content: ContentBlock[] = [
-        { type: 'text', text: JSON.stringify(result, null, 2) },
-      ];
-      if (uiResource) {
-        content.push({
-          type: 'resource',
-          resource: {
-            uri: uiResource.uri,
-            mimeType: uiResource.mimeType,
-            text: uiResource.text,
-          },
-        });
-      }
-
       return {
-        content,
+        content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+        ...(structuredContent ? { structuredContent } : {}),
         isError: result.status === 'error',
       };
     } catch (err) {

@@ -13,7 +13,6 @@ import { successResponse, errorResponse } from '../../types/responses.js';
 import type { ChartConfig } from '../../types/responses.js';
 import type { ToolHandler } from '../../types/tools.js';
 import { isDataPilotError } from '../../utils/errors.js';
-import { renderChartApp } from '../../ui/chart-app.js';
 
 const InputSchema = z.object({
   sql: z.string().min(1).describe('SQL SELECT query whose results will be visualized'),
@@ -168,21 +167,19 @@ export const generateChartConfigHandler: ToolHandler = async (input, context) =>
       description,
     };
 
-    // Attach an interactive MCP App (rendered inline by supporting clients).
-    // Non-supporting clients ignore it and use the JSON above. The widget is
-    // fully self-contained — the query rows are inlined into the HTML.
-    context.attachUI?.({
-      uri: 'ui://datapilot/chart',
-      mimeType: 'text/html;profile=mcp-app',
-      text: renderChartApp({
-        title,
-        description,
+    // Feed the interactive MCP App (ui://datapilot/chart, linked via _meta below).
+    // The host forwards this structuredContent to the rendered iframe; it is not
+    // added to the model context, so large row sets don't bloat the conversation.
+    context.attachStructuredContent?.({
+      chart: {
         chartType: params.chart_type,
         xField: params.x_field,
-        yField: params.y_field,
-        colorField: params.color_field,
-        rows,
-      }),
+        yField: params.y_field ?? null,
+        colorField: params.color_field ?? null,
+        title,
+        description,
+      },
+      rows,
     });
 
     return successResponse(result, {
@@ -209,6 +206,15 @@ export const generateChartConfigSpec = {
     'Generate a Vega-Lite chart specification from the results of a SQL query. ' +
     'Supports bar, line, scatter, pie, and histogram charts. ' +
     'Returns a complete Vega-Lite JSON spec ready to render in any compatible viewer.',
+  // MCP Apps (io.modelcontextprotocol/ui): link this tool to the interactive chart
+  // widget. Hosts that support the extension render ui://datapilot/chart and pass the
+  // tool's structuredContent to it.
+  _meta: {
+    ui: {
+      resourceUri: 'ui://datapilot/chart',
+      visibility: ['model', 'app'],
+    },
+  },
   inputSchema: {
     type: 'object' as const,
     properties: {
