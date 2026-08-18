@@ -127,7 +127,10 @@ export function createApp(): express.Application {
     // it, Auth0 issues a normal opaque access token, which the auth middleware
     // validates via /userinfo. M2M clients still get a JWT via client_credentials.
     res.json({
-      issuer: publicUrl,
+      // issuer MUST match the token issuer (Auth0), or strict clients (mcp-remote,
+      // Claude's connector) reject the ID token on an iss mismatch. Auth0 mints the
+      // token, so the issuer is Auth0 — not this server.
+      issuer: `https://${domain}/`,
       authorization_endpoint: `https://${domain}/authorize`,
       token_endpoint: `https://${domain}/oauth/token`,
       jwks_uri: `https://${domain}/.well-known/jwks.json`,
