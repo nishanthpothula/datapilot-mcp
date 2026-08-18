@@ -80,37 +80,15 @@ export function createApp(): express.Application {
 
   app.use(express.json({ limit: '10mb' }));
 
-  // ─── OAuth Protected Resource Metadata (RFC 9728) ────────────────────────
-  // Claude's native remote connector REQUIRES this document; it reads it (via the
-  // WWW-Authenticate `resource_metadata` hint) to discover the authorization server.
-  // We point it back at THIS server as the authorization server so the client then
-  // reads our customised /.well-known/oauth-authorization-server (which routes DCR
-  // through us and omits the custom audience). mcp-remote also honours this.
-  const protectedResourceDoc = (resource: string): Record<string, unknown> => {
-    const publicUrl = process.env['PUBLIC_URL'] ?? 'http://localhost:3000';
-    return {
-      resource,
-      authorization_servers: [publicUrl],
-      bearer_methods_supported: ['header'],
-      scopes_supported: ['openid', 'profile', 'email'],
-    };
-  };
-
-  app.get('/.well-known/oauth-protected-resource', (_req, res) => {
-    const publicUrl = process.env['PUBLIC_URL'] ?? 'http://localhost:3000';
-    res.json(protectedResourceDoc(publicUrl));
-  });
-
-  // Path-suffixed variant for the /mcp resource (RFC 9728 §3.1).
-  app.get('/.well-known/oauth-protected-resource/mcp', (_req, res) => {
-    const publicUrl = process.env['PUBLIC_URL'] ?? 'http://localhost:3000';
-    res.json(protectedResourceDoc(`${publicUrl}/mcp`));
-  });
-
   // ─── OAuth Authorization Server Metadata (RFC 8414) ──────────────────────
-  // The client reads this to know where to send the user for login. `issuer` is set
-  // to THIS server's URL (not Auth0's) so it matches the authorization_servers entry
-  // above and the URL this document is served from — Claude validates that match.
+  // mcp-remote reads this to know where to send the user for login.
+  //
+  // NOTE: we deliberately do NOT serve RFC 9728 Protected Resource Metadata
+  // (/.well-known/oauth-protected-resource). When present, mcp-remote derives an
+  // RFC 8707 `resource` parameter from it and forwards it to Auth0's /authorize,
+  // which Auth0 rejects (it maps `resource` to our custom API audience, which the
+  // interactive flow isn't authorized for) — the browser flow then returns no
+  // authorization code. Omitting it keeps the working audience-less login.
 
   app.get('/.well-known/oauth-authorization-server', (_req, res) => {
     const domain = process.env['AUTH0_DOMAIN'];

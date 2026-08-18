@@ -43,10 +43,10 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
 
   if (!token) {
     const publicUrl = process.env['PUBLIC_URL'] ?? 'http://localhost:3000';
-    // Point clients at the RFC 9728 Protected Resource Metadata document. Claude's
-    // native connector follows this to discover the authorization server; mcp-remote
-    // honours it too.
-    const resourceMetadata = `${publicUrl}/.well-known/oauth-protected-resource`;
+    // Point clients at our authorization-server metadata (NOT RFC 9728 protected-
+    // resource metadata — that makes mcp-remote send a `resource` param that Auth0
+    // rejects; see the note in transport/http.ts).
+    const resourceMetadata = `${publicUrl}/.well-known/oauth-authorization-server`;
     res.setHeader(
       'WWW-Authenticate',
       `Bearer realm="datapilot", resource_metadata="${resourceMetadata}"`,
