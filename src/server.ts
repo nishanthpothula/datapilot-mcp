@@ -34,6 +34,7 @@ function buildServer(context: ToolContext): Server {
       name: r.name,
       description: r.description,
       mimeType: r.mimeType,
+      ...(r.meta ? { _meta: r.meta } : {}),
     })),
   }));
 
@@ -44,7 +45,12 @@ function buildServer(context: ToolContext): Server {
       throw new Error(`Unknown resource: ${request.params.uri}`);
     }
     return {
-      contents: [{ uri: res.uri, mimeType: res.mimeType, text: res.html }],
+      contents: [{
+        uri: res.uri,
+        mimeType: res.mimeType,
+        text: res.html,
+        ...(res.meta ? { _meta: res.meta } : {}),
+      }],
     };
   });
 

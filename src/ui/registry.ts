@@ -20,6 +20,8 @@ export interface UiResourceDef {
   mimeType: string;
   /** The static HTML template (no per-call data). */
   html: string;
+  /** `_meta` for the resource — host sandbox hints (CSP, border preference). */
+  meta?: Record<string, unknown>;
 }
 
 export const UI_MIME = 'text/html;profile=mcp-app';
@@ -31,6 +33,19 @@ export const UI_RESOURCES: UiResourceDef[] = [
     description: 'Interactive chart widget for SQL query results (bar/line/scatter/pie/histogram).',
     mimeType: UI_MIME,
     html: CHART_TEMPLATE_HTML,
+    // Host sandbox hints. The widget is fully self-contained — no external network —
+    // so all CSP domain allowlists are empty.
+    meta: {
+      ui: {
+        csp: {
+          connectDomains: [],
+          resourceDomains: [],
+          frameDomains: [],
+          baseUriDomains: [],
+        },
+        prefersBorder: true,
+      },
+    },
   },
 ];
 
