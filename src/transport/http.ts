@@ -80,8 +80,37 @@ export function createApp(): express.Application {
 
   app.use(express.json({ limit: '10mb' }));
 
-  // ─── OAuth discovery (RFC 8414) ──────────────────────────────────────────
-  // mcp-remote reads this to know where to send the user for login
+  // ─── OAuth Protected Resource Metadata (RFC 9728) ────────────────────────
+  // Claude's native remote connector REQUIRES this document; it reads it (via the
+  // WWW-Authenticate `resource_metadata` hint) to discover the authorization server.
+  // We point it back at THIS server as the authorization server so the client then
+  // reads our customised /.well-known/oauth-authorization-server (which routes DCR
+  // through us and omits the custom audience). mcp-remote also honours this.
+  const protectedResourceDoc = (resource: string): Record<string, unknown> => {
+    const publicUrl = process.env['PUBLIC_URL'] ?? 'http://localhost:3000';
+    return {
+      resource,
+      authorization_servers: [publicUrl],
+      bearer_methods_supported: ['header'],
+      scopes_supported: ['openid', 'profile', 'email'],
+    };
+  };
+
+  app.get('/.well-known/oauth-protected-resource', (_req, res) => {
+    const publicUrl = process.env['PUBLIC_URL'] ?? 'http://localhost:3000';
+    res.json(protectedResourceDoc(publicUrl));
+  });
+
+  // Path-suffixed variant for the /mcp resource (RFC 9728 §3.1).
+  app.get('/.well-known/oauth-protected-resource/mcp', (_req, res) => {
+    const publicUrl = process.env['PUBLIC_URL'] ?? 'http://localhost:3000';
+    res.json(protectedResourceDoc(`${publicUrl}/mcp`));
+  });
+
+  // ─── OAuth Authorization Server Metadata (RFC 8414) ──────────────────────
+  // The client reads this to know where to send the user for login. `issuer` is set
+  // to THIS server's URL (not Auth0's) so it matches the authorization_servers entry
+  // above and the URL this document is served from — Claude validates that match.
 
   app.get('/.well-known/oauth-authorization-server', (_req, res) => {
     const domain = process.env['AUTH0_DOMAIN'];
@@ -98,7 +127,7 @@ export function createApp(): express.Application {
     // it, Auth0 issues a normal opaque access token, which the auth middleware
     // validates via /userinfo. M2M clients still get a JWT via client_credentials.
     res.json({
-      issuer: `https://${domain}/`,
+      issuer: publicUrl,
       authorization_endpoint: `https://${domain}/authorize`,
       token_endpoint: `https://${domain}/oauth/token`,
       jwks_uri: `https://${domain}/.well-known/jwks.json`,

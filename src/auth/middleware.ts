@@ -43,14 +43,18 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
 
   if (!token) {
     const publicUrl = process.env['PUBLIC_URL'] ?? 'http://localhost:3000';
+    // Point clients at the RFC 9728 Protected Resource Metadata document. Claude's
+    // native connector follows this to discover the authorization server; mcp-remote
+    // honours it too.
+    const resourceMetadata = `${publicUrl}/.well-known/oauth-protected-resource`;
     res.setHeader(
       'WWW-Authenticate',
-      `Bearer realm="datapilot", resource_metadata="${publicUrl}/.well-known/oauth-authorization-server"`,
+      `Bearer realm="datapilot", resource_metadata="${resourceMetadata}"`,
     );
     res.status(401).json({
       error: 'authentication_required',
       error_description: 'Bearer token required',
-      resource_metadata: `${publicUrl}/.well-known/oauth-authorization-server`,
+      resource_metadata: resourceMetadata,
     });
     return;
   }
